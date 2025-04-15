@@ -1,0 +1,1146 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>لعبة إطلاق النار مع أعداء مسلحين</title>
+    <style>
+        body { 
+            margin: 0; 
+            overflow: hidden; 
+            font-family: Arial, sans-serif;
+        }
+        #info {
+            position: absolute;
+            top: 10px;
+            right: 10px;
+            color: white;
+            background-color: rgba(0, 0, 0, 0.5);
+            padding: 10px;
+            border-radius: 5px;
+            text-align: right;
+        }
+        #healthBar {
+            position: absolute;
+            top: 60px;
+            right: 10px;
+            width: 200px;
+            height: 20px;
+            background-color: rgba(0, 0, 0, 0.5);
+            border-radius: 5px;
+            overflow: hidden;
+        }
+        #healthFill {
+            height: 100%;
+            width: 100%;
+            background-color: #4CAF50;
+            transition: width 0.3s;
+        }
+        #startScreen {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            background-color: rgba(0, 0, 0, 0.8);
+            color: white;
+            text-align: center;
+        }
+        #gameOverScreen {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            display: none;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            background-color: rgba(0, 0, 0, 0.8);
+            color: white;
+            text-align: center;
+        }
+        #startButton, #restartButton {
+            margin-top: 20px;
+            padding: 10px 20px;
+            font-size: 18px;
+            background-color: #4CAF50;
+            color: white;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+        }
+        #startButton:hover, #restartButton:hover {
+            background-color: #45a049;
+        }
+        #crosshair {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            color: red;
+            font-size: 24px;
+            pointer-events: none;
+            opacity: 0.7;
+        }
+        #ammo {
+            position: absolute;
+            bottom: 10px;
+            right: 10px;
+            color: white;
+            background-color: rgba(0, 0, 0, 0.5);
+            padding: 10px;
+            border-radius: 5px;
+            text-align: right;
+        }
+        #weapon {
+            position: absolute;
+            bottom: 0;
+            right: 10%;
+            width: 150px;
+            height: 150px;
+            background-image: url('/api/placeholder/150/150');
+            background-size: contain;
+            background-repeat: no-repeat;
+            pointer-events: none;
+            opacity: 0.8;
+        }
+        #damageOverlay {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(255, 0, 0, 0);
+            pointer-events: none;
+            transition: background-color 0.3s;
+        }
+    </style>
+</head>
+<body>
+    <div id="info">النقاط: <span id="score">0</span></div>
+    <div id="healthBar"><div id="healthFill"></div></div>
+    <div id="ammo">الذخيرة: <span id="ammoCount">10</span></div>
+    <div id="crosshair">+</div>
+    <div id="weapon"></div>
+    <div id="damageOverlay"></div>
+    <div id="startScreen">
+        <h1>لعبة إطلاق النار ضد الأعداء</h1>
+        <p>استخدم مفاتيح الأسهم للتحرك في العالم</p>
+        <p>حرك الماوس للنظر حولك</p>
+        <p>انقر بزر الماوس الأيسر لإطلاق النار</p>
+        <p>اضغط على مفتاح R لإعادة تحميل السلاح</p>
+        <button id="startButton">ابدأ اللعبة</button>
+    </div>
+    <div id="gameOverScreen">
+        <h1>انتهت اللعبة</h1>
+        <p>النقاط النهائية: <span id="finalScore">0</span></p>
+        <button id="restartButton">إعادة اللعبة</button>
+    </div>
+    
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script>
+        // متغيرات عامة
+        let scene, camera, renderer, player;
+        let enemies = [];
+        let score = 0;
+        let playerHealth = 100;
+        let moveForward = false;
+        let moveBackward = false;
+        let moveLeft = false;
+        let moveRight = false;
+        let playerSpeed = 0.15;
+        let gameStarted = false;
+        
+        // متغيرات التحكم بالماوس
+        let mouseX = 0;
+        let mouseY = 0;
+        let targetRotationY = 0;
+        let targetRotationX = 0;
+        let isPointerLocked = false;
+        
+        // متغيرات السلاح
+        let ammo = 10;
+        let isReloading = false;
+        let canShoot = true;
+        let bullets = [];
+        let enemyBullets = [];
+        
+        // الألوان المختلفة للأعداء
+        const enemyColors = [0xff0000, 0xff6600, 0x990000, 0xcc0000];
+        
+        // تهيئة اللعبة
+        function init() {
+            // إنشاء المشهد
+            scene = new THREE.Scene();
+            scene.background = new THREE.Color(0x87CEEB);
+            
+            // إنشاء الكاميرا
+            camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+            camera.position.y = 1.6; // ارتفاع على مستوى النظر
+            
+            // إنشاء المستخدم (اللاعب)
+            player = new THREE.Group();
+            player.add(camera);
+            scene.add(player);
+            
+            // إنشاء العارض
+            renderer = new THREE.WebGLRenderer({ antialias: true });
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            document.body.appendChild(renderer.domElement);
+            
+            // إضافة الإضاءة
+            const ambientLight = new THREE.AmbientLight(0xffffff, 0.6);
+            scene.add(ambientLight);
+            
+            const directionalLight = new THREE.DirectionalLight(0xffffff, 0.8);
+            directionalLight.position.set(10, 20, 5);
+            scene.add(directionalLight);
+            
+            // إنشاء الأرضية
+            const floorGeometry = new THREE.PlaneGeometry(100, 100);
+            const floorMaterial = new THREE.MeshStandardMaterial({ 
+                color: 0x7CFC00,
+                side: THREE.DoubleSide
+            });
+            const floor = new THREE.Mesh(floorGeometry, floorMaterial);
+            floor.rotation.x = -Math.PI / 2;
+            scene.add(floor);
+            
+            // إنشاء حدود للعالم
+            createBoundaries();
+            
+            // إنشاء الأعداء
+            createEnemies();
+            
+            // إضافة أحداث المدخلات للوحة المفاتيح
+            document.addEventListener('keydown', onKeyDown);
+            document.addEventListener('keyup', onKeyUp);
+            
+            // إضافة أحداث الماوس وقفل المؤشر
+            document.addEventListener('mousemove', onMouseMove);
+            document.addEventListener('click', onMouseClick);
+            document.addEventListener('pointerlockchange', pointerLockChange);
+            document.addEventListener('mozpointerlockchange', pointerLockChange);
+            document.addEventListener('webkitpointerlockchange', pointerLockChange);
+            
+            window.addEventListener('resize', onWindowResize);
+            
+            // عرض عدد الذخيرة وتحديث شريط الصحة
+            updateAmmoDisplay();
+            updateHealthDisplay();
+            
+            // بدء حلقة التحريك
+            animate();
+        }
+        
+        // إنشاء حدود للعالم
+        function createBoundaries() {
+            const wallMaterial = new THREE.MeshStandardMaterial({ 
+                color: 0x8B4513,
+                side: THREE.DoubleSide
+            });
+            
+            // الجدار الأمامي
+            const frontWallGeometry = new THREE.BoxGeometry(100, 10, 1);
+            const frontWall = new THREE.Mesh(frontWallGeometry, wallMaterial);
+            frontWall.position.set(0, 5, -50);
+            scene.add(frontWall);
+            
+            // الجدار الخلفي
+            const backWallGeometry = new THREE.BoxGeometry(100, 10, 1);
+            const backWall = new THREE.Mesh(backWallGeometry, wallMaterial);
+            backWall.position.set(0, 5, 50);
+            scene.add(backWall);
+            
+            // الجدار الأيمن
+            const rightWallGeometry = new THREE.BoxGeometry(1, 10, 100);
+            const rightWall = new THREE.Mesh(rightWallGeometry, wallMaterial);
+            rightWall.position.set(50, 5, 0);
+            scene.add(rightWall);
+            
+            // الجدار الأيسر
+            const leftWallGeometry = new THREE.BoxGeometry(1, 10, 100);
+            const leftWall = new THREE.Mesh(leftWallGeometry, wallMaterial);
+            leftWall.position.set(-50, 5, 0);
+            scene.add(leftWall);
+        }
+        
+        // إنشاء الأعداء
+        function createEnemies() {
+            for (let i = 0; i < 10; i++) {
+                // إنشاء جسم العدو
+                const enemyGroup = new THREE.Group();
+                
+                // رأس العدو
+                const headGeometry = new THREE.BoxGeometry(0.7, 0.7, 0.7);
+                const headMaterial = new THREE.MeshStandardMaterial({
+                    color: enemyColors[Math.floor(Math.random() * enemyColors.length)],
+                    metalness: 0.3,
+                    roughness: 0.4
+                });
+                const head = new THREE.Mesh(headGeometry, headMaterial);
+                head.position.y = 1.8;
+                enemyGroup.add(head);
+                
+                // جسم العدو
+                const bodyGeometry = new THREE.BoxGeometry(0.8, 1.2, 0.5);
+                const bodyMaterial = new THREE.MeshStandardMaterial({
+                    color: 0x333333,
+                    metalness: 0.3,
+                    roughness: 0.4
+                });
+                const body = new THREE.Mesh(bodyGeometry, bodyMaterial);
+                body.position.y = 0.9;
+                enemyGroup.add(body);
+                
+                // ذراع العدو (المسدس)
+                const armGeometry = new THREE.BoxGeometry(0.2, 0.2, 0.6);
+                const armMaterial = new THREE.MeshStandardMaterial({
+                    color: 0x222222,
+                    metalness: 0.5,
+                    roughness: 0.5
+                });
+                const arm = new THREE.Mesh(armGeometry, armMaterial);
+                arm.position.set(0.5, 1.2, 0);
+                enemyGroup.add(arm);
+                
+                // وضع العدو بشكل عشوائي في المشهد
+                enemyGroup.position.x = Math.random() * 80 - 40;
+                enemyGroup.position.z = Math.random() * 80 - 40;
+                
+                // خصائص العدو
+                enemyGroup.health = 100;
+                enemyGroup.lastShootTime = 0;
+                enemyGroup.shootingInterval = 2000 + Math.random() * 3000; // فترة إطلاق النار 2-5 ثوان
+                enemyGroup.moveSpeed = 0.03 + Math.random() * 0.03; // سرعة التحرك
+                
+                scene.add(enemyGroup);
+                enemies.push(enemyGroup);
+            }
+        }
+        
+        // قفل مؤشر الماوس في وسط الشاشة
+        function lockPointer() {
+            if (!isPointerLocked && gameStarted) {
+                const element = document.body;
+                
+                element.requestPointerLock = element.requestPointerLock || 
+                                             element.mozRequestPointerLock || 
+                                             element.webkitRequestPointerLock;
+                                             
+                element.requestPointerLock();
+            }
+        }
+        
+        // التحقق من حالة قفل المؤشر
+        function pointerLockChange() {
+            if (document.pointerLockElement === document.body || 
+                document.mozPointerLockElement === document.body || 
+                document.webkitPointerLockElement === document.body) {
+                
+                isPointerLocked = true;
+            } else {
+                isPointerLocked = false;
+            }
+        }
+        
+        // معالجة حركة الماوس
+        function onMouseMove(event) {
+            if (isPointerLocked && gameStarted) {
+                // حساسية الماوس - قم بتعديلها حسب الحاجة
+                const sensitivity = 0.002;
+                
+                // تحديث زوايا الدوران بناءً على حركة الماوس
+                targetRotationY -= event.movementX * sensitivity;
+                
+                // تحديد حدود لدوران الكاميرا للأعلى والأسفل
+                const maxPitch = Math.PI / 2 - 0.1; // تقريبًا 90 درجة
+                targetRotationX -= event.movementY * sensitivity;
+                targetRotationX = Math.max(-maxPitch, Math.min(maxPitch, targetRotationX));
+            }
+        }
+        
+        // معالجة النقر بالماوس (إطلاق النار)
+        function onMouseClick(event) {
+            if (!gameStarted) {
+                return;
+            }
+            
+            if (!isPointerLocked) {
+                lockPointer();
+                return;
+            }
+            
+            // التحقق من وجود ذخيرة وإمكانية إطلاق النار
+            if (ammo > 0 && canShoot && !isReloading) {
+                shoot();
+            } else if (ammo === 0 && !isReloading) {
+                reload();
+            }
+        }
+        
+        // إطلاق النار
+        function shoot() {
+            // تقليل الذخيرة
+            ammo--;
+            updateAmmoDisplay();
+            
+            // منع إطلاق النار المتكرر بسرعة
+            canShoot = false;
+            setTimeout(() => { canShoot = true; }, 250);
+            
+            // إنشاء شعاع من الكاميرا
+            const raycaster = new THREE.Raycaster();
+            const direction = new THREE.Vector3(0, 0, -1);
+            direction.unproject(camera).sub(camera.position).normalize();
+            
+            raycaster.set(camera.position, direction);
+            
+            // إضافة تأثير لموجة انطلاق الرصاصة
+            createMuzzleFlash();
+            
+            // إضافة صوت إطلاق النار (يمكن تفعيله لاحقاً)
+            // playSound('gunSound');
+            
+            // إضافة رصاصة مرئية (اختياري)
+            createBulletTrail(camera.position.clone(), direction.clone());
+            
+            // فحص التقاطع مع الأعداء
+            let enemyParts = [];
+            enemies.forEach(enemy => {
+                enemy.children.forEach(part => {
+                    enemyParts.push(part);
+                });
+            });
+            
+            const intersects = raycaster.intersectObjects(enemyParts);
+            
+            if (intersects.length > 0) {
+                // تم إصابة جزء من عدو
+                const hitPart = intersects[0].object;
+                let hitEnemy = null;
+                
+                // البحث عن العدو الذي ينتمي إليه الجزء المصاب
+                for (let i = 0; i < enemies.length; i++) {
+                    if (enemies[i].children.includes(hitPart)) {
+                        hitEnemy = enemies[i];
+                        break;
+                    }
+                }
+                
+                if (hitEnemy) {
+                    // إلحاق الضرر بالعدو
+                    hitEnemy.health -= 25; // قيمة الضرر
+                    
+                    // إنشاء تأثير الدم
+                    createBloodEffect(intersects[0].point);
+                    
+                    // التحقق مما إذا كان العدو قد مات
+                    if (hitEnemy.health <= 0) {
+                        // إزالة العدو وزيادة النقاط
+                        scene.remove(hitEnemy);
+                        const enemyIndex = enemies.indexOf(hitEnemy);
+                        if (enemyIndex !== -1) {
+                            enemies.splice(enemyIndex, 1);
+                            score += 10;
+                            document.getElementById('score').textContent = score;
+                        }
+                        
+                        // تأثير الانفجار
+                        createExplosion(hitEnemy.position.clone());
+                        
+                        // إذا قمنا بقتل كل الأعداء، أعد إنشاءهم
+                        if (enemies.length === 0) {
+                            setTimeout(createEnemies, 3000);
+                        }
+                    }
+                }
+            }
+        }
+        
+        // إنشاء تأثير الدم
+        function createBloodEffect(position) {
+            const particleCount = 10;
+            
+            for (let i = 0; i < particleCount; i++) {
+                const geometry = new THREE.SphereGeometry(0.05, 8, 8);
+                const material = new THREE.MeshBasicMaterial({ 
+                    color: 0xff0000, // لون الدم
+                    transparent: true,
+                    opacity: 1
+                });
+                
+                const particle = new THREE.Mesh(geometry, material);
+                particle.position.copy(position);
+                
+                // اتجاه وسرعة عشوائية
+                particle.velocity = new THREE.Vector3(
+                    Math.random() * 0.1 - 0.05,
+                    Math.random() * 0.1,
+                    Math.random() * 0.1 - 0.05
+                );
+                
+                scene.add(particle);
+                
+                // إزالة جسيمات الدم بعد فترة
+                setTimeout(() => {
+                    scene.remove(particle);
+                }, 500);
+            }
+        }
+        
+        // إنشاء مسار الرصاصة
+        function createBulletTrail(start, direction) {
+            const bulletGeometry = new THREE.BoxGeometry(0.03, 0.03, 0.3);
+            const bulletMaterial = new THREE.MeshBasicMaterial({ color: 0xffff00 });
+            const bullet = new THREE.Mesh(bulletGeometry, bulletMaterial);
+            
+            // وضع الرصاصة في موقع بداية الإطلاق وتوجيهها
+            bullet.position.copy(start);
+            bullet.lookAt(start.clone().add(direction));
+            
+            // إضافة خصائص الرصاصة
+            bullet.velocity = direction.multiplyScalar(2); // سرعة الرصاصة
+            bullet.alive = true;
+            
+            scene.add(bullet);
+            bullets.push(bullet);
+            
+            // إزالة الرصاصة بعد فترة
+            setTimeout(() => {
+                scene.remove(bullet);
+                const index = bullets.indexOf(bullet);
+                if (index !== -1) {
+                    bullets.splice(index, 1);
+                }
+            }, 1000);
+        }
+        
+        // إعادة تحميل السلاح
+        function reload() {
+            if (isReloading) return;
+            
+            isReloading = true;
+            
+            // تغيير لون علامة التصويب للإشارة إلى التحميل
+            document.getElementById('crosshair').style.color = 'yellow';
+            
+            // وقت إعادة التحميل
+            setTimeout(() => {
+                ammo = 10; // إعادة تعبئة الذخيرة
+                updateAmmoDisplay();
+                isReloading = false;
+                document.getElementById('crosshair').style.color = 'red';
+            }, 2000); // وقت إعادة التحميل 2 ثانية
+        }
+        
+        // تحديث عرض الذخيرة
+        function updateAmmoDisplay() {
+            document.getElementById('ammoCount').textContent = ammo;
+        }
+        
+        // تحديث عرض الصحة
+        function updateHealthDisplay() {
+            const healthFill = document.getElementById('healthFill');
+            healthFill.style.width = playerHealth + '%';
+            
+            // تغيير لون شريط الصحة حسب قيمته
+            if (playerHealth > 60) {
+                healthFill.style.backgroundColor = '#4CAF50'; // أخضر
+            } else if (playerHealth > 30) {
+                healthFill.style.backgroundColor = '#FFC107'; // أصفر
+            } else {
+                healthFill.style.backgroundColor = '#F44336'; // أحمر
+            }
+        }
+        
+        // إظهار تأثير الضرر
+        function showDamageEffect() {
+            const overlay = document.getElementById('damageOverlay');
+            overlay.style.backgroundColor = 'rgba(255, 0, 0, 0.3)';
+            
+            setTimeout(() => {
+                overlay.style.backgroundColor = 'rgba(255, 0, 0, 0)';
+            }, 300);
+        }
+        
+        // إنشاء موجة انطلاق الرصاصة
+        function createMuzzleFlash() {
+            // اهتزاز الكاميرا قليلاً
+            const originalRotationX = camera.rotation.x;
+            const originalRotationY = camera.rotation.y;
+            
+            camera.rotation.x += Math.random() * 0.01 - 0.005;
+            camera.rotation.y += Math.random() * 0.01 - 0.005;
+            
+            setTimeout(() => {
+                camera.rotation.x = originalRotationX;
+                camera.rotation.y = originalRotationY;
+            }, 100);
+        }
+        
+        // إنشاء تأثير الانفجار
+        function createExplosion(position) {
+            const particleCount = 15;
+            const particles = [];
+            
+            for (let i = 0; i < particleCount; i++) {
+                const geometry = new THREE.SphereGeometry(0.1, 8, 8);
+                const material = new THREE.MeshBasicMaterial({ 
+                    color: 0xff9900,
+                    transparent: true,
+                    opacity: 1
+                });
+                
+                const particle = new THREE.Mesh(geometry, material);
+                particle.position.copy(position);
+                
+                // اتجاه وسرعة عشوائية
+                particle.velocity = new THREE.Vector3(
+                    Math.random() * 0.2 - 0.1,
+                    Math.random() * 0.2 - 0.1,
+                    Math.random() * 0.2 - 0.1
+                );
+                
+                scene.add(particle);
+                particles.push(particle);
+                
+                // إزالة الجسيمات بعد الانتهاء
+                setTimeout(() => {
+                    scene.remove(particle);
+                    const index = particles.indexOf(particle);
+                    if (index !== -1) {
+                        particles.splice(index, 1);
+                    }
+                }, 1000);
+            }
+        }
+        
+        // تحديث الأعداء
+        function updateEnemies() {
+            const currentTime = Date.now();
+            
+            enemies.forEach(enemy => {
+                // حساب المسافة والاتجاه إلى اللاعب
+                const directionToPlayer = new THREE.Vector3().subVectors(player.position, enemy.position);
+                const distanceToPlayer = directionToPlayer.length();
+                
+                // تحديث دوران العدو لمواجهة اللاعب
+                enemy.lookAt(player.position);
+                
+                // التحرك نحو اللاعب إذا كان بعيداً
+                if (distanceToPlayer > 10) {
+                    directionToPlayer.normalize();
+                    enemy.position.add(directionToPlayer.multiplyScalar(enemy.moveSpeed));
+                    
+                    // التأكد من أن العدو لا يخرج من حدود العالم
+                    enemy.position.x = Math.max(-49, Math.min(49, enemy.position.x));
+                    enemy.position.z = Math.max(-49, Math.min(49, enemy.position.z));
+                }
+                
+                // إطلاق النار على اللاعب إذا كان قريباً وبعد فترة محددة
+                if (distanceToPlayer < 30 && currentTime - enemy.lastShootTime > enemy.shootingInterval) {
+                    enemy.lastShootTime = currentTime;
+                    enemyShoot(enemy);
+                }
+            });
+        }
+        
+        // جعل العدو يطلق النار
+        function enemyShoot(enemy) {
+            // حساب الاتجاه نحو اللاعب
+            const directionToPlayer = new THREE.Vector3().subVectors(player.position, enemy.position).normalize();
+            
+            // إضافة بعض الإنحراف العشوائي للتصويب
+            directionToPlayer.x += (Math.random() - 0.5) * 0.1;
+            directionToPlayer.y += (Math.random() - 0.5) * 0.1;
+            directionToPlayer.z += (Math.random() - 0.5) * 0.1;
+            directionToPlayer.normalize();
+            
+            // إنشاء مسار الرصاصة
+            const bulletGeometry = new THREE.BoxGeometry(0.05, 0.05, 0.3);
+            const bulletMaterial = new THREE.MeshBasicMaterial({ color: 0xff0000 }); // رصاصة حمراء للعدو
+            const bullet = new THREE.Mesh(bulletGeometry, bulletMaterial);
+            
+            // تحديد موضع بداية الرصاصة
+            const bulletStartPos = enemy.position.clone();
+            bulletStartPos.y += 1.5; // من رأس العدو تقريباً
+            
+            bullet.position.copy(bulletStartPos);
+            bullet.lookAt(bulletStartPos.clone().add(directionToPlayer));
+            
+            // إضافة خصائص الرصاصة
+            bullet.velocity = directionToPlayer.multiplyScalar(1); // سرعة الرصاصة
+            bullet.owner = 'enemy';
+            bullet.damage = 10; // مقدار الضرر الذي تسببه الرصاصة
+            
+            scene.add(bullet);
+            enemyBullets.push(bullet);
+            
+            // إزالة الرصاصة بعد فترة
+            setTimeout(() => {
+                scene.remove(bullet);
+                const index = enemyBullets.indexOf(bullet);
+                if (index !== -1) {
+                    enemyBullets.splice(index, 1);
+                }
+            }, 2000);
+        }
+        
+        // تحديث رصاصات العدو وفحص الاصطدام مع اللاعب
+        function updateEnemyBullets() {
+            enemyBullets.forEach(bullet => {
+                // تحريك الرصاصة
+                bullet.position.add(bullet.velocity);
+                
+                // حساب المسافة من اللاعب
+                const distanceToPlayer = bullet.position.distanceTo(player.position);
+                
+                // التحقق من اصطدام الرصاصة باللاعب
+                if (distanceToPlayer < 1) {
+                    // إصابة اللاعب
+                    takeDamage(bullet.damage);
+                    
+// إزالة الرصاصة
+                    scene.remove(bullet);
+                    const index = enemyBullets.indexOf(bullet);
+                    if (index !== -1) {
+                        enemyBullets.splice(index, 1);
+                    }
+                }
+            });
+        }
+        
+        // اللاعب يتلقى ضرراً
+        function takeDamage(amount) {
+            playerHealth -= amount;
+            
+            // تحديث شريط الصحة
+            updateHealthDisplay();
+            
+            // إظهار تأثير الضرر
+            showDamageEffect();
+            
+            // التحقق من موت اللاعب
+            if (playerHealth <= 0) {
+                gameOver();
+            }
+        }
+        
+        // إنتهاء اللعبة
+        function gameOver() {
+            // إظهار شاشة انتهاء اللعبة
+            document.getElementById('gameOverScreen').style.display = 'flex';
+            document.getElementById('finalScore').textContent = score;
+            
+            // إلغاء قفل مؤشر الماوس
+            document.exitPointerLock = document.exitPointerLock || 
+                                        document.mozExitPointerLock || 
+                                        document.webkitExitPointerLock;
+            document.exitPointerLock();
+            
+            // إيقاف اللعبة
+            gameStarted = false;
+        }
+        
+        // إعادة تشغيل اللعبة
+        function restartGame() {
+            // إخفاء شاشة انتهاء اللعبة
+            document.getElementById('gameOverScreen').style.display = 'none';
+            
+            // إعادة تعيين متغيرات اللاعب
+            playerHealth = 100;
+            score = 0;
+            ammo = 10;
+            
+            // تحديث واجهة المستخدم
+            document.getElementById('score').textContent = score;
+            updateHealthDisplay();
+            updateAmmoDisplay();
+            
+            // إعادة وضع اللاعب
+            player.position.set(0, 0, 0);
+            camera.rotation.x = 0;
+            camera.rotation.y = 0;
+            targetRotationX = 0;
+            targetRotationY = 0;
+            
+            // إزالة كل الأعداء والرصاصات
+            while (enemies.length > 0) {
+                scene.remove(enemies[0]);
+                enemies.shift();
+            }
+            
+            while (bullets.length > 0) {
+                scene.remove(bullets[0]);
+                bullets.shift();
+            }
+            
+            while (enemyBullets.length > 0) {
+                scene.remove(enemyBullets[0]);
+                enemyBullets.shift();
+            }
+            
+            // إنشاء أعداء جدد
+            createEnemies();
+            
+            // بدء اللعبة مرة أخرى
+            gameStarted = true;
+            lockPointer();
+        }
+        
+        // تحديث حجم النافذة
+        function onWindowResize() {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        }
+        
+        // معالجة الضغط على المفاتيح
+        function onKeyDown(event) {
+            if (!gameStarted) return;
+            
+            switch (event.code) {
+                case 'ArrowUp':
+                case 'KeyW':
+                    moveForward = true;
+                    break;
+                case 'ArrowDown':
+                case 'KeyS':
+                    moveBackward = true;
+                    break;
+                case 'ArrowLeft':
+                case 'KeyA':
+                    moveLeft = true;
+                    break;
+                case 'ArrowRight':
+                case 'KeyD':
+                    moveRight = true;
+                    break;
+                case 'KeyR':
+                    if (!isReloading && ammo < 10) {
+                        reload();
+                    }
+                    break;
+            }
+        }
+        
+        // معالجة رفع المفاتيح
+        function onKeyUp(event) {
+            if (!gameStarted) return;
+            
+            switch (event.code) {
+                case 'ArrowUp':
+                case 'KeyW':
+                    moveForward = false;
+                    break;
+                case 'ArrowDown':
+                case 'KeyS':
+                    moveBackward = false;
+                    break;
+                case 'ArrowLeft':
+                case 'KeyA':
+                    moveLeft = false;
+                    break;
+                case 'ArrowRight':
+                case 'KeyD':
+                    moveRight = false;
+                    break;
+            }
+        }
+        
+        // تحديث حركة اللاعب
+        function updatePlayerMovement() {
+            // حساب اتجاه النظر
+            const direction = new THREE.Vector3();
+            player.getWorldDirection(direction);
+            direction.y = 0; // نحافظ على المستوى الأفقي
+            direction.normalize();
+            
+            // حساب الاتجاه الجانبي (يمين/يسار)
+            const sideways = new THREE.Vector3().crossVectors(new THREE.Vector3(0, 1, 0), direction);
+            
+            // تطبيق الحركة بناءً على المفاتيح المضغوطة
+            const moveVelocity = new THREE.Vector3(0, 0, 0);
+            
+            if (moveForward) {
+                moveVelocity.add(direction.clone().multiplyScalar(playerSpeed));
+            }
+            if (moveBackward) {
+                moveVelocity.add(direction.clone().multiplyScalar(-playerSpeed));
+            }
+            if (moveLeft) {
+                moveVelocity.add(sideways.clone().multiplyScalar(playerSpeed));
+            }
+            if (moveRight) {
+                moveVelocity.add(sideways.clone().multiplyScalar(-playerSpeed));
+            }
+            
+            // تطبيق الحركة على اللاعب
+            player.position.add(moveVelocity);
+            
+            // التأكد من أن اللاعب لا يخرج من حدود العالم
+            player.position.x = Math.max(-49, Math.min(49, player.position.x));
+            player.position.z = Math.max(-49, Math.min(49, player.position.z));
+            
+            // تحديث دوران الكاميرا بسلاسة
+            camera.rotation.x += (targetRotationX - camera.rotation.x) * 0.1;
+            player.rotation.y += (targetRotationY - player.rotation.y) * 0.1;
+        }
+        
+        // تحريك الرصاصات
+        function updateBullets() {
+            // تحديث رصاصات اللاعب
+            for (let i = bullets.length - 1; i >= 0; i--) {
+                const bullet = bullets[i];
+                bullet.position.add(bullet.velocity);
+                
+                // فحص تصادم الرصاصة مع الأعداء
+                for (let j = enemies.length - 1; j >= 0; j--) {
+                    const enemy = enemies[j];
+                    const distanceToEnemy = bullet.position.distanceTo(enemy.position);
+                    
+                    if (distanceToEnemy < 1.5) {
+                        // إصابة العدو
+                        enemy.health -= 25;
+                        
+                        // إنشاء تأثير الدم
+                        createBloodEffect(bullet.position);
+                        
+                        // إزالة الرصاصة
+                        scene.remove(bullet);
+                        bullets.splice(i, 1);
+                        
+                        // فحص إذا مات العدو
+                        if (enemy.health <= 0) {
+                            // إزالة العدو
+                            scene.remove(enemy);
+                            enemies.splice(j, 1);
+                            
+                            // زيادة النقاط
+                            score += 10;
+                            document.getElementById('score').textContent = score;
+                            
+                            // إنشاء تأثير الانفجار
+                            createExplosion(enemy.position.clone());
+                        }
+                        
+                        break;
+                    }
+                }
+                
+                // إزالة الرصاصات التي تخرج من حدود العالم
+                if (Math.abs(bullet.position.x) > 50 || 
+                    Math.abs(bullet.position.z) > 50 || 
+                    Math.abs(bullet.position.y) > 10) {
+                    scene.remove(bullet);
+                    bullets.splice(i, 1);
+                }
+            }
+        }
+        
+        // تحديث مستويات الصعوبة وإضافة المزيد من الأعداء
+        function updateDifficulty() {
+            // إضافة عدو جديد كل 30 ثانية حتى نصل إلى الحد الأقصى
+            if (enemies.length < 20 && Math.random() < 0.001) {
+                // إنشاء عدو جديد
+                const enemyGroup = new THREE.Group();
+                
+                // رأس العدو
+                const headGeometry = new THREE.BoxGeometry(0.7, 0.7, 0.7);
+                const headMaterial = new THREE.MeshStandardMaterial({
+                    color: enemyColors[Math.floor(Math.random() * enemyColors.length)],
+                    metalness: 0.3,
+                    roughness: 0.4
+                });
+                const head = new THREE.Mesh(headGeometry, headMaterial);
+                head.position.y = 1.8;
+                enemyGroup.add(head);
+                
+                // جسم العدو
+                const bodyGeometry = new THREE.BoxGeometry(0.8, 1.2, 0.5);
+                const bodyMaterial = new THREE.MeshStandardMaterial({
+                    color: 0x333333,
+                    metalness: 0.3,
+                    roughness: 0.4
+                });
+                const body = new THREE.Mesh(bodyGeometry, bodyMaterial);
+                body.position.y = 0.9;
+                enemyGroup.add(body);
+                
+                // ذراع العدو (المسدس)
+                const armGeometry = new THREE.BoxGeometry(0.2, 0.2, 0.6);
+                const armMaterial = new THREE.MeshStandardMaterial({
+                    color: 0x222222,
+                    metalness: 0.5,
+                    roughness: 0.5
+                });
+                const arm = new THREE.Mesh(armGeometry, armMaterial);
+                arm.position.set(0.5, 1.2, 0);
+                enemyGroup.add(arm);
+                
+                // إضافة عناصر أكثر تفصيلاً للأعداء
+                
+                // سلاح العدو
+                const gunGeometry = new THREE.BoxGeometry(0.1, 0.1, 0.3);
+                const gunMaterial = new THREE.MeshStandardMaterial({
+                    color: 0x111111,
+                    metalness: 0.7,
+                    roughness: 0.3
+                });
+                const gun = new THREE.Mesh(gunGeometry, gunMaterial);
+                gun.position.set(0.6, 1.2, 0.3);
+                enemyGroup.add(gun);
+                
+                // قبعة العدو (لبعض الأعداء)
+                if (Math.random() > 0.5) {
+                    const hatGeometry = new THREE.CylinderGeometry(0.4, 0.4, 0.2, 16);
+                    const hatMaterial = new THREE.MeshStandardMaterial({
+                        color: 0x222222,
+                        metalness: 0.1,
+                        roughness: 0.9
+                    });
+                    const hat = new THREE.Mesh(hatGeometry, hatMaterial);
+                    hat.position.y = 2.3;
+                    enemyGroup.add(hat);
+                }
+                
+                // وضع العدو بشكل عشوائي في أطراف المشهد
+                const spawnSide = Math.floor(Math.random() * 4);
+                switch (spawnSide) {
+                    case 0: // أعلى
+                        enemyGroup.position.x = Math.random() * 80 - 40;
+                        enemyGroup.position.z = -48;
+                        break;
+                    case 1: // يمين
+                        enemyGroup.position.x = 48;
+                        enemyGroup.position.z = Math.random() * 80 - 40;
+                        break;
+                    case 2: // أسفل
+                        enemyGroup.position.x = Math.random() * 80 - 40;
+                        enemyGroup.position.z = 48;
+                        break;
+                    case 3: // يسار
+                        enemyGroup.position.x = -48;
+                        enemyGroup.position.z = Math.random() * 80 - 40;
+                        break;
+                }
+                
+                // خصائص العدو - أصعب مع تقدم اللعبة
+                enemyGroup.health = 100 + Math.floor(score / 100) * 25; // زيادة الصحة مع تقدم النقاط
+                enemyGroup.lastShootTime = 0;
+                enemyGroup.shootingInterval = Math.max(1000, 3000 - Math.floor(score / 50) * 100); // أسرع في إطلاق النار
+                enemyGroup.moveSpeed = Math.min(0.1, 0.03 + (score / 500) * 0.02); // أسرع في الحركة
+                
+                scene.add(enemyGroup);
+                enemies.push(enemyGroup);
+            }
+        }
+        
+        // إنشاء عوائق وغطاء في العالم
+        function createObstacles() {
+            // إنشاء صناديق عشوائية كغطاء
+            for (let i = 0; i < 20; i++) {
+                const boxGeometry = new THREE.BoxGeometry(
+                    1 + Math.random() * 2,
+                    1 + Math.random() * 2,
+                    1 + Math.random() * 2
+                );
+                const boxMaterial = new THREE.MeshStandardMaterial({
+                    color: 0x8B4513,
+                    metalness: 0.2,
+                    roughness: 0.8
+                });
+                const box = new THREE.Mesh(boxGeometry, boxMaterial);
+                
+                // وضع الصناديق بشكل عشوائي
+                box.position.x = Math.random() * 80 - 40;
+                box.position.z = Math.random() * 80 - 40;
+                box.position.y = boxGeometry.parameters.height / 2;
+                
+                // تدوير عشوائي
+                box.rotation.y = Math.random() * Math.PI * 2;
+                
+                scene.add(box);
+            }
+            
+            // إنشاء بعض الأشجار البسيطة
+            for (let i = 0; i < 15; i++) {
+                const treeGroup = new THREE.Group();
+                
+                // جذع الشجرة
+                const trunkGeometry = new THREE.CylinderGeometry(0.5, 0.7, 3, 8);
+                const trunkMaterial = new THREE.MeshStandardMaterial({
+                    color: 0x8B4513,
+                    metalness: 0.1,
+                    roughness: 0.9
+                });
+                const trunk = new THREE.Mesh(trunkGeometry, trunkMaterial);
+                trunk.position.y = 1.5;
+                treeGroup.add(trunk);
+                
+                // أوراق الشجرة
+                const leavesGeometry = new THREE.ConeGeometry(2, 4, 8);
+                const leavesMaterial = new THREE.MeshStandardMaterial({
+                    color: 0x228B22,
+                    metalness: 0.1,
+                    roughness: 0.8
+                });
+                const leaves = new THREE.Mesh(leavesGeometry, leavesMaterial);
+                leaves.position.y = 5;
+                treeGroup.add(leaves);
+                
+                // وضع الشجرة
+                treeGroup.position.x = Math.random() * 90 - 45;
+                treeGroup.position.z = Math.random() * 90 - 45;
+                
+                scene.add(treeGroup);
+            }
+        }
+        
+        // حلقة التحريك الرئيسية
+        function animate() {
+            requestAnimationFrame(animate);
+            
+            if (gameStarted) {
+                // تحديث حركة اللاعب
+                updatePlayerMovement();
+                
+                // تحديث الأعداء
+                updateEnemies();
+                
+                // تحديث الرصاصات
+                updateBullets();
+                
+                // تحديث رصاصات العدو
+                updateEnemyBullets();
+                
+                // تحديث مستوى الصعوبة
+                updateDifficulty();
+            }
+            
+            // تحديث العرض
+            renderer.render(scene, camera);
+        }
+        
+        // إعداد أحداث البدء وإعادة التشغيل
+        document.getElementById('startButton').addEventListener('click', () => {
+            document.getElementById('startScreen').style.display = 'none';
+            gameStarted = true;
+            
+            // إضافة العوائق عند بدء اللعبة
+            createObstacles();
+            
+            // قفل مؤشر الماوس
+            lockPointer();
+        });
+        
+        document.getElementById('restartButton').addEventListener('click', restartGame);
+        
+        // بدء اللعبة
+        init();
